@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { notesModel, authModel } = require("./db.js");
+const { publishFakeSms } = require("./publisher");
 
 const notesService = {
   async getNotesById(req, res) {
@@ -29,7 +30,7 @@ const notesService = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-    async createNotes(req, res) {
+  async createNotes(req, res) {
     const { title, description } = req.body;
     const userId = req.user.userId;
 
@@ -132,6 +133,25 @@ const authService = {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     const user = await authModel.registerUser(username, hashedPassword);
+
+    try {
+      const { published, correlationId } = publishFakeSms({
+        userId: user.id,
+        phone: "+10000000000",
+        message: `Welcome ${user.username}! Your account has been created.`,
+      });
+
+      // published === false means the channel's write buffer is full. The
+      // message is still queued in memory locally, not lost, but it is a signal
+      // to stop publishing. Logging it is the minimum; ignoring it silently is
+      // how a publisher ends up holding thousands of messages in RAM.
+      if (!published) {
+        console.warn(`Broker backpressure while publishing ${correlationId}`);
+      }
+    } catch (error) {
+      console.error("Failed to publish welcome SMS event:", error);
+    }
+
     res.status(201).json(user);
   },
 }

@@ -12,9 +12,14 @@ services:
       - DB_PASSWORD=mypassword
       - DB_NAME=notes_db
       - REDIS_HOST=redis
+      - RABBITMQ_URL=amqp://myuser:mypassword@rabbitmq:5672
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   # 2. PostgreSQL Database
   postgres:
@@ -26,7 +31,9 @@ services:
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: notes_db
     ports:
-      - "5432:5432"
+      # Published on 5433 because a native postgres already owns host 5432.
+      # Containers still reach it on 5432 over the compose network.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
@@ -53,6 +60,24 @@ services:
     depends_on:
       - app                  # Wait for the app to start up too
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: boot_rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"          # RabbitMQ main port
+      - "15672:15672"        # RabbitMQ management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: myuser
+      RABBITMQ_DEFAULT_PASS: mypassword
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 volumes:
   postgres_data:
   redis_data:
+  rabbitmq_data:
